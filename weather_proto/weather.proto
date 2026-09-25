@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+// Shared gateway <-> participant UDP payload. Single source of truth for both projects.
+message WeatherCurrent {
+    float temperature_c = 1;
+    float wind_kmh = 2;
+    float gust_kmh = 3;
+    bool warning = 4;
+}
+
