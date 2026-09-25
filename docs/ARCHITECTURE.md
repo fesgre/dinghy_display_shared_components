@@ -14,16 +14,22 @@ graph TD
         GW[Gateway + Display]
     end
 
-    WIND -- UDP telemetry --> GW
-    COMPASS -- UDP telemetry --> GW
+    WIND -- UDP telemetry (uplink only) --> GW
+    COMPASS -- UDP telemetry (uplink only) --> GW
     GW -- weather fetch (once, at dock) --> INTERNET[(Open-Meteo API)]
     GW -- renders --> EPD[7.5in e-Paper]
+    PHONE[Phone browser] -- HTTP, joined to AP --> GW
 ```
 
 One physical unit — the **gateway** — is mast-mounted, hosts the WiFi AP, owns the
 e-paper display, fetches weather once before departure, and aggregates telemetry
 from any number of **participants** (sensor nodes). Participants only ever talk to
 the gateway; they never talk to each other or to the internet.
+
+Networking is **uplink-only**: participants send telemetry to the gateway, the
+gateway never sends anything back. Weather data is fetched once by the gateway
+and rendered directly on its own display — it is never put on the wire, so there
+is no multicast/broadcast requirement at all.
 
 ## Repositories
 
@@ -39,7 +45,7 @@ the gateway; they never talk to each other or to the internet.
 
 ## Protocol
 
-Single generic envelope, one wire format for all data flowing gateway ⇄ participant:
+Single generic envelope, one wire format, one direction only — participant → gateway:
 
 ```protobuf
 message Envelope {
@@ -48,12 +54,15 @@ message Envelope {
   uint32 uptime_ms      = 3;   // sender's uptime, for staleness checks
 
   oneof payload {
-    WeatherCurrent weather     = 10; // gateway -> participants (optional, informational)
-    CompassGyro    compass_gyro = 11; // participant -> gateway
-    Wind           wind         = 12; // participant -> gateway
+    CompassGyro compass_gyro = 11; // participant -> gateway
+    Wind        wind         = 12; // participant -> gateway
   }
 }
 ```
+
+`WeatherCurrent` stays a gateway-local struct (produced by `weather_client`,
+consumed by `display_task`) — it never goes into an `Envelope` and never touches
+the network.
 
 Rules for schema evolution:
 - Never reuse or renumber a field/oneof tag; `reserved` it instead.
@@ -65,18 +74,39 @@ Rules for schema evolution:
 | Port | Direction | Purpose |
 |---|---|---|
 | UDP 3334 | participant → gateway | HELLO handshake (join announce) |
-| UDP 3333 | both directions | `Envelope` telemetry (participant → gateway) and weather broadcast (gateway → participants) |
+| UDP 3333 | participant → gateway | `Envelope` telemetry, unicast |
+| TCP 80 | phone → gateway | HTTP status dashboard (see below) |
+
+No multicast/broadcast group is needed — the gateway never transmits telemetry
+or weather data back to participants.
+
+Since there's no downlink, the gateway no longer *needs* to learn a participant's
+address in advance — `recvfrom()` on the telemetry socket yields the sender's
+address for free. The HELLO handshake could be dropped entirely; kept for now
+only as an explicit "participant joined" signal, open for removal in the
+`participant_core` extraction phase.
 
 ## Gateway responsibilities
 
 1. `wifi_connect`: bring up AP (`ESP32-Gateway`) always; STA join only long enough to
    fetch weather once at the dock (internet not required underway).
-2. `weather_client`: one-shot HTTP GET + JSON parse → cached `WeatherCurrent`.
+2. `weather_client`: one-shot HTTP GET + JSON parse → cached `WeatherCurrent`, kept
+   entirely local (rendered on the gateway's own display, never sent to participants).
 3. `telemetry_server`: UDP listener on 3333, decodes `Envelope`, routes by
    `oneof payload` + `participant_id` into a mutex-protected `telemetry_state_t`
    table (last sample + last-seen timestamp per participant, for staleness display).
-4. `display_task`: renders screens from `telemetry_state_t` instead of static/generated
-   placeholder data.
+   Gateway needs one participant-address table (keyed by `participant_id`) instead
+   of the single remembered address `hello_wifi/gateway.c` uses today, since the
+   downlink no longer exists to force a 1-participant simplification.
+4. `display_task`: renders screens from `telemetry_state_t` (+ local `WeatherCurrent`)
+   instead of static/generated placeholder data.
+5. `web_dashboard`: `esp_http_server` bound to the AP interface (`192.168.4.1`),
+   serving a small static HTML page (`GET /`) plus a JSON status endpoint
+   (`GET /api/status`) that mirrors `telemetry_state_t` + `WeatherCurrent` +
+   per-participant last-seen. Lets a phone connected to `ESP32-Gateway` check
+   health/sensor data in a browser, no app needed, works fully offline underway.
+   Requires raising the AP's `max_connection` (currently `1` in `hello_wifi/gateway.c`)
+   so participants and a phone can be associated at the same time.
 
 ## Participant responsibilities (shared `participant_core` component)
 
