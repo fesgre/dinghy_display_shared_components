@@ -533,3 +533,62 @@ Do not invent hardware features, PGN definitions or API responses.
 
 For each implementation step, first explain the intended changes,
 affected files, hardware dependencies and validation plan.
+
+## 18. Build Environment
+Build one ESP-IDF app at a time. Run `idf.py build` from that app's project
+directory, the directory containing its `CMakeLists.txt`. Each app has its own
+configuration and build directory; do not share build output between apps.
+
+### Current project directories
+
+In the current workspace, the ESP-IDF project roots are:
+
+- `C:\work\ESP32\DinghyDisplay`
+- `C:\work\ESP32\hello_wifi`
+- `C:\work\ESP32\hello_wifi_participant`
+- `C:\work\ESP32\hello_world\hello_world`
+
+After the monorepo transition, use the corresponding project directory under
+`apps/` or `experiments/` instead.
+
+### Build procedure
+
+Use a PowerShell terminal with the ESP-IDF environment initialized. In VS Code,
+the ESP-IDF PowerShell terminal profile initializes it automatically. To
+initialize a new, unconfigured PowerShell terminal, dot-source the installed
+profile once:
+
+```powershell
+. 'C:\Espressif\tools\Microsoft.v6.0.2.PowerShell_profile.ps1'
+```
+
+Then select the app directory and build. For example:
+
+```powershell
+Set-Location 'C:\work\ESP32\DinghyDisplay'
+idf.py --version
+idf.py build
+```
+
+`idf.py --version` confirms that the ESP-IDF command is available before the
+build. Repeat the procedure from the project directory for each app. If the
+terminal is already initialized, do not dot-source the profile again.
+
+Builds are run by the user in their ESP-IDF PowerShell terminal, not by an
+assistant in a generic shell. When asked to build, identify the target app and
+provide the command to run in that terminal. If the assistant cannot access the
+initialized terminal, it must not try to build from another shell.
+
+### Current development environment
+
+These are the paths configured on the current development machine; they are
+examples, not requirements for other installations:
+
+- ESP-IDF version: 6.0.2
+- `IDF_PATH`: `C:\esp\v6.0.2\esp-idf`
+- `IDF_TOOLS_PATH`: `C:\Espressif\tools`
+- `IDF_PYTHON_ENV_PATH`: `C:\Espressif\tools\python\v6.0.2\venv`
+
+The initialized terminal also provides `idf.py`, `esptool.py`, `espefuse.py`,
+`espsecure.py`, `otatool.py`, and `parttool.py`. Use `idf.py` for normal
+project build operations.
